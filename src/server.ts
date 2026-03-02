@@ -30,6 +30,56 @@ app.get('/api/shows', async (req: Request, res: Response) => {
   }
 });
 
+// GET shows with search + filter
+// query params: q (search term), genre, status, minRating, maxRating
+app.get('/api/shows/search', async (req: Request, res: Response) => {
+  try {
+    const { q, genre, status, minRating, maxRating } = req.query;
+
+    const shows = await prisma.show.findMany({
+      where: {
+        AND: [
+          // full-text search across name, description, cast, director, writer
+          q
+            ? {
+                OR: [
+                  { name: { contains: q as string, mode: 'insensitive' } },
+                  { description: { contains: q as string, mode: 'insensitive' } },
+                  { cast: { contains: q as string, mode: 'insensitive' } },
+                  { director: { contains: q as string, mode: 'insensitive' } },
+                  { writer: { contains: q as string, mode: 'insensitive' } },
+                ],
+              }
+            : {},
+          // filter by genre name
+          genre
+            ? {
+                genres: {
+                  some: { name: { equals: genre as string, mode: 'insensitive' } },
+                },
+              }
+            : {},
+          // filter by status
+          status ? { status: { equals: status as string, mode: 'insensitive' } } : {},
+          // filter by rating range
+          minRating ? { rating: { gte: parseFloat(minRating as string) } } : {},
+          maxRating ? { rating: { lte: parseFloat(maxRating as string) } } : {},
+        ],
+      },
+      include: {
+        genres: true,
+        _count: { select: { episodes: true } },
+      },
+      orderBy: { rating: 'desc' },
+    });
+
+    res.json({ results: shows, count: shows.length });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
 // GET single show by ID with all episodes
 app.get('/api/shows/:id', async (req: Request, res: Response) => {
   try {
@@ -155,6 +205,7 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`API endpoints:`);
   console.log(` GET  /api/shows - Get all shows`);
+  console.log(` GET  /api/shows/search?q=&genre=&status=&minRating= - Search + filter shows`);
   console.log(` GET  /api/shows/:id - Get show by ID`);
   console.log(` GET  /api/genres - Get all genres`);
   console.log(` GET  /api/genres/:name/shows - Get shows by genre`);
